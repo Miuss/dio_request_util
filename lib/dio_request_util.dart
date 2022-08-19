@@ -1,13 +1,17 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_easyloading/flutter_easyloading.dart';
+
+import 'base.dart';
 
 class Request {
   /// 创建Dio请求头
   static Dio createDio() {
     BaseOptions _baseOptions = BaseOptions(
-      baseUrl: 'http://127.0.0.1',
-      connectTimeout: 30000,
-      receiveTimeout: 40000,
-      contentType: 'application/json; charset=utf-8',
+      baseUrl: Base.baseUrl,
+      connectTimeout: Base.requestTimeout,
+      receiveTimeout: Base.requestTimeout,
+      contentType: Base.contenType,
     );
 
     Dio dio = Dio(_baseOptions);
@@ -16,6 +20,69 @@ class Request {
     dio.interceptors.add(HttpInterceptors());
 
     return dio;
+  }
+
+  // 处理 Dio 异常
+  static String _dioError(DioError error) {
+    switch (error.type) {
+      case DioErrorType.connectTimeout:
+        return "网络连接超时，请检查网络设置";
+      case DioErrorType.receiveTimeout:
+        return "服务器异常，请稍后重试！";
+      case DioErrorType.sendTimeout:
+        return "网络连接超时，请检查网络设置";
+      case DioErrorType.response:
+        return "服务器异常，请稍后重试！";
+      case DioErrorType.cancel:
+        return "请求已被取消，请重新请求";
+      case DioErrorType.other:
+        return "网络异常，请稍后重试！";
+      default:
+        return "Dio异常";
+    }
+  }
+
+  // 处理 Http 错误码
+  static void _handleHttpError(int errorCode) {
+    String message;
+    switch (errorCode) {
+      case 400:
+        message = '请求语法错误';
+        break;
+      case 401:
+        message = '未授权，请登录';
+        break;
+      case 403:
+        message = '拒绝访问';
+        break;
+      case 404:
+        message = '请求出错';
+        break;
+      case 408:
+        message = '请求超时';
+        break;
+      case 500:
+        message = '服务器异常';
+        break;
+      case 501:
+        message = '服务未实现';
+        break;
+      case 502:
+        message = '网关错误';
+        break;
+      case 503:
+        message = '服务不可用';
+        break;
+      case 504:
+        message = '网关超时';
+        break;
+      case 505:
+        message = 'HTTP版本不受支持';
+        break;
+      default:
+        message = '请求失败，错误码：$errorCode';
+    }
+    EasyLoading.showError(message);
   }
 
   /// get 请求
@@ -68,6 +135,7 @@ class Request {
         onReceiveProgress: onReceiveProgress);
     return response;
   }
+
 }
 
 /// 请求拦截器 请按照Api的规范自行封装
@@ -83,13 +151,45 @@ class HttpInterceptors extends Interceptor {
   /// 注：针对返回的数据进行进行一些返回的封装
   @override
   void onResponse(Response response, ResponseInterceptorHandler handler) {
-    return handler.next(response);
+
+    EasyLoading.instance
+      ..displayDuration = const Duration(milliseconds: 2000)
+      ..indicatorType = EasyLoadingIndicatorType.fadingCircle
+      ..loadingStyle = EasyLoadingStyle.dark
+      ..indicatorSize = 45.0
+      ..radius = 10.0
+      ..progressColor = Colors.yellow
+      ..backgroundColor = Colors.green
+      ..indicatorColor = Colors.yellow
+      ..textColor = Colors.yellow
+      ..maskColor = Colors.blue.withOpacity(0.5)
+      ..userInteractions = true
+      ..dismissOnTap = false;
+    ///执行加载动画
+
+    EasyLoading.show();
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      var data = response.data;
+      print(data);
+      if (Base.successCode.contains(data["code"])) {
+        EasyLoading.dismiss();
+        return handler.next(response);
+      } else {
+        /// 处理业务错误代码
+        EasyLoading.showError('错误：${response.data[Base.messageName]}');
+      }
+    } else {
+      /// 处理Http错误代码
+      Request._handleHttpError(response.statusCode!);
+    }
   }
 
   /// 请求异常时进行一些操作
   /// 注：一般针对error做一些提示性的提示弹窗和日志的输出
   @override
   void onError(DioError err, ErrorInterceptorHandler handler) {
-    return handler.next(err);
+    /// 处理Dio请求错误
+    EasyLoading.showError(Request._dioError(err));
   }
 }
